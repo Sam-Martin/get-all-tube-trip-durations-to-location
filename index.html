@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Simple markers</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+
+      var destinationToCheck = "Euromoney Learning Solutions, 8 Bouverie Street, London EC4Y 8AX, United Kingdom"
+      var stations
+
+      // Fetch the list of stations
+      $.ajax({
+          url: "stations.json",
+          dataType: "jsonp",
+          success: function( response ) {
+              stations = response
+          }
+      });
+      function initMap() {
+
+
+
+
+
+        var directionsService = new google.maps.DirectionsService;
+        var markers = {};
+        var map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 10,
+          center: {"lat":  51.528308,
+          "lng":  -0.3817765}
+        });
+        var mapInfoWindow = function(text, marker){
+          var infowindow = new google.maps.InfoWindow({
+            content: text
+          });
+          marker.addListener('click', function() {
+            infowindow.open(map, marker);
+          });
+
+        }
+        stations.forEach(function(item, index){
+          var marker = new google.maps.Marker({
+            position: {lat: item.lat, lng: item.lng},
+            map: map,
+            title: item.stationname,
+            icon: 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
+          });
+          markers[item.stationname] = marker
+        })
+        function calculateAndDisplayRoute(origin, destination) {
+
+          directionsService.route({
+            origin: {lat: origin.lat,lng: origin.lng},  // Haight.
+            destination: destination,  // Ocean Beach.
+            // Note that Javascript allows us to access the constant
+            // using square brackets and a string value as its
+            // "property."
+            travelMode: google.maps.TravelMode["TRANSIT"]
+          }, function(response, status) {
+            if (status == google.maps.DirectionsStatus.OK) {
+              //directionsDisplay.setDirections(response);
+              var totalRouteTime = 0;
+              response.routes[0].legs.map(function(obj){
+                totalRouteTime += obj.duration.value
+              })
+              totalRouteTimeMins = parseInt(totalRouteTime/60)
+              mapInfoWindow("Minutes to " + origin.stationname + " = " + totalRouteTimeMins, markers[origin.stationname])
+
+              if(totalRouteTimeMins < 60){
+                markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
+              }else{
+                markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
+              }
+              console.log("Minutes to " + origin.stationname + " = " + totalRouteTimeMins)
+            } else {
+              window.alert('Directions request failed due to ' + status);
+            }
+          });
+        }
+        // Calculate the time to each station
+        var loopStations = function(index){
+
+          if(index > stations.count){
+            return
+          }
+          var item = stations[index]
+          calculateAndDisplayRoute(
+            item,
+            destinationToCheck
+          )
+          setTimeout(function(){loopStations(index+1)}, 3000)
+        }
+        loopStations(0)
+
+      }
+    </script>
+    <script async defer
+    src="https://maps.googleapis.com/maps/api/js?&callback=initMap">
+    </script>
+  </body>
+</html>
