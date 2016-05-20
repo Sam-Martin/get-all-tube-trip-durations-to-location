@@ -2,9 +2,20 @@
 <html>
   <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+    <script src="easy-autocomplete/jquery.easy-autocomplete.min.js"></script>
+    <link rel="stylesheet" href="easy-autocomplete/easy-autocomplete.min.css">
+   <!--[if IE 7]>
+   <link rel="stylesheet" href="assets/css/font-awesome-ie7.min.css">
+   <![endif]-->
+   <!--[if lt IE 9]>
+   <link rel="stylesheet" type="text/css" href="css/custom-theme/jquery.ui.1.10.0.ie.css"/>
+   <![endif]-->
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
     <meta charset="utf-8">
-    <title>Simple markers</title>
+    <title>Get London Transit Times to Destination</title>
     <style>
       html, body {
         height: 100%;
@@ -14,69 +25,170 @@
       #map {
         height: 100%;
       }
+      .progress{
+        display: none;
+        margin-left:10px;
+        margin-right:10px
+      }
     </style>
   </head>
   <body>
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <!-- Brand and toggle get grouped for better mobile display -->
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1" aria-expanded="false">
+            <span class="sr-only">Toggle navigation</span>
+          </button>
+          <a class="navbar-brand" href="#">Get London Commute Times</a>
+        </div>
+
+        <!-- Collect the nav links, forms, and other content for toggling -->
+        <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+          <form class="navbar-form navbar-left" role="search">
+            <div class="form-group">
+              <input type="text" class="form-control" placeholder="Destination" id="destinationToCheck">
+            </div>
+            <button class="btn btn-default" onclick="javascript:searchDestinationCommuteTimes();return false;">Search</button>
+          </form>
+          <ul class="nav navbar-nav navbar-right">
+            <li><a href="#">Link</a></li>
+          </ul>
+        </div><!-- /.navbar-collapse -->
+      </div><!-- /.container-fluid -->
+    </nav>
+    <div class="progress">
+    <div class="progress-bar progress-bar-success" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+      <span class="sr-only">40% Complete (success)</span>
+    </div>
+    </div>
     <div id="map"></div>
     <script>
 
       var destinationToCheck = "London Eye, London"
+      var apiURI = "https://9x05a3dbbk.execute-api.eu-west-1.amazonaws.com/"
+      var durationThreshold = 60
       var directionsService
       var stations
       var markers = {}
       var map
 
+      var searchDestinationCommuteTimes = function(){
+        destinationToCheck = $('#destinationToCheck').val();
+        // Get origin durations from DynamoDB if we get
+        $.getJSON(apiURI + '/dev/get-traveltimes', {destination: destinationToCheck}, function(data){
+
+          if(typeof(data.Error) != "undefined"){
+            console.log(data.Error)
+            findStationsTravelTimes(0)
+          }else{
+              displayStationsTravelTimes(data.Item.origins)
+          }
+
+        })
+      }
+
+
+
       // Fetch the list of stations
-      console.log("trigger json")
       $.getJSON("/stations.json", function( response ) {
-          console.log("returned json")
           stations = response
           initMap()
-          loopStations(0)
+          $('#destinationToCheck').easyAutocomplete({
+            data: $.map(stations, function (obj, key) {
+                return obj.stationname
+            }),
+            list: {
+          		match: {
+          			enabled: true
+          		}
+          	}
+         });
       });
 
-      function calculateAndDisplayRoute(origin, destination) {
+      function displayStationsTravelTimes(stationTravelTimes){
 
+        // Loop through each pre-populated station travel duration and bring it onto the map!
+        for (var stationName in stationTravelTimes) {
+
+          // Make sure it actually has the key (and that it doesn't come from a prototype)
+          if (stationTravelTimes.hasOwnProperty(stationName)) {
+            var station = stationTravelTimes[stationName]
+
+            // Populate the node's info window
+            mapInfoWindow(station.duration + " minutes from "  + stationName + " to " + destinationToCheck, map, markers[stationName]);
+
+            // Colour the node in accordance to our threshold
+            if(station.duration < durationThreshold){
+              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
+            }else{
+              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
+            }
+          }
+        }
+      }
+
+      function findStationsTravelTimes(index) {
+
+        // If we've done all the stations, exit
+        if(index >= stations.length){
+          $('.progress').slideUp();
+          // Build the array of origins to match the DynamoDB structure
+          var origins = {}
+          stations.forEach(function(obj, index){
+            origins[obj.stationname] = {
+              duration: obj.duration
+            }
+          })
+
+          $.post(apiURI+"dev/set-traveltimes", JSON.stringify({
+              destination: destinationToCheck,
+              origins: origins
+          }),function(response){
+            console.log(response)
+          }, "json" )
+          return
+        }
+
+        var origin = stations[index]
+        $('.progress').slideDown();
+        $('#progressBar').css('width', ((index/stations.length)*100) + "%");
+        // Get the duration of the trip from that source
         directionsService.route({
-          origin: {lat: origin.lat,lng: origin.lng},  // Haight.
-          destination: destination,  // Ocean Beach.
-          // Note that Javascript allows us to access the constant
-          // using square brackets and a string value as its
-          // "property."
+          origin: {lat: origin.lat,lng: origin.lng},
+          destination: destinationToCheck,
           travelMode: google.maps.TravelMode["TRANSIT"]
         }, function(response, status) {
+
           if (status == google.maps.DirectionsStatus.OK) {
-            //directionsDisplay.setDirections(response);
+
+            // Caclulate the total route time from all the legs
             var totalRouteTime = 0;
             response.routes[0].legs.map(function(obj){
               totalRouteTime += obj.duration.value
             })
             totalRouteTimeMins = parseInt(totalRouteTime/60)
+            stations[index].duration = totalRouteTimeMins
+
+            // Populate the node's info window
             mapInfoWindow(totalRouteTimeMins + " minutes from "  + origin.stationname + " to " + destinationToCheck, map, markers[origin.stationname])
 
-            if(totalRouteTimeMins < 60){
+            // Colour the node in accordance to our threshold
+            if(totalRouteTimeMins < durationThreshold){
               markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
             }else{
               markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
             }
-            console.log("Minutes to " + origin.stationname + " = " + totalRouteTimeMins)
+
+            // Find the next station's duration in 2 seconds
+            setTimeout(function(){findStationsTravelTimes(index+1)}, 2000)
           } else {
-            window.alert('Directions request failed due to ' + status);
+
+            // Try again in 2 seconds
+            console.log('Directions request failed due to ' + status);
+            setTimeout(function(){findStationsTravelTimes(index)}, 2000)
           }
         });
-      }
-      // Calculate the time to each station
-      var loopStations = function(index){
-
-        if(index > stations.count){
-          return
-        }
-        var item = stations[index]
-        calculateAndDisplayRoute(
-          item,
-          destinationToCheck
-        )
-        setTimeout(function(){loopStations(index+1)}, 3000)
       }
 
       // Map an info window to a marker
