@@ -177,10 +177,11 @@
 
         var stationName = unknownStationsArray[index]
         var origin = stations[stationName]
-
+        var numKnownStations = (stationsArray.length - unknownStationsArray.length) + index;
+        var percentageComplete = ((numKnownStations/stationsArray.length)*100)
         $('#progress').slideDown();
-        $('#progressBar').css('width', ((index/unknownStationsArray.length)*100) + "%");
-        $('#progressText').text(index + ' of ' + unknownStationsArray.length + ' stations')
+        $('#progressBar').css('width', percentageComplete + "%");
+        $('#progressText').text(numKnownStations + ' of ' + stationsArray.length + ' stations')
 
         // Get the time of next monday at 9AM
         var arrivalTime = new Date();
