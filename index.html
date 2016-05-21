@@ -25,8 +25,10 @@
       #map {
         height: 100%;
       }
-      .progress{
+      #progress{
         display: none;
+      }
+      .progress{
         margin-left:10px;
         margin-right:10px
       }
@@ -57,10 +59,18 @@
         </div><!-- /.navbar-collapse -->
       </div><!-- /.container-fluid -->
     </nav>
-    <div class="progress">
-    <div class="progress-bar progress-bar-success" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-      <span class="sr-only">40% Complete (success)</span>
-    </div>
+    <div class="row" id="progress">
+        <div class="col-md-10">
+          <div class="progress">
+            <div class="progress-bar progress-bar-success" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+            </div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <p id="progressText">99/100 stations found</p>
+        </div>
+
+
     </div>
     <div id="map"></div>
     <script>
@@ -72,6 +82,7 @@
       var stations
       var markers = {}
       var map
+      var stationsArray = []
 
       var searchDestinationCommuteTimes = function(){
         destinationToCheck = $('#destinationToCheck').val();
@@ -80,7 +91,9 @@
 
           if(typeof(data.Error) != "undefined"){
             console.log(data.Error)
-            findStationsTravelTimes(0)
+
+            // If we haven't got the destination already, clone the stations array and iterate through it
+            findStationsTravelTimes(stationsArray.slice(0),0)
           }else{
             displayStationsTravelTimes(data.Item.origins)
           }
@@ -94,10 +107,14 @@
       $.getJSON("/stations.json", function( response ) {
           stations = response
           initMap()
+
+          // generate an array of stations
+          Object.keys(stations).forEach(function(stationName) {
+             stationsArray.push(stationName)
+          });
+
           $('#destinationToCheck').easyAutocomplete({
-            data: $.map(stations, function (obj, key) {
-                return obj.stationname
-            }),
+            data: stationsArray,
             list: {
           		match: {
           			enabled: true
@@ -107,13 +124,14 @@
       });
 
       function displayStationsTravelTimes(stationTravelTimes){
+        var unknownStationsArray = [];
 
         // Loop through each pre-populated station travel duration and bring it onto the map!
-        for (var stationName in stationTravelTimes) {
+        for (var stationName in stations) {
+          var station = stationTravelTimes[stationName]
 
-          // Make sure it actually has the key (and that it doesn't come from a prototype)
-          if (stationTravelTimes.hasOwnProperty(stationName)) {
-            var station = stationTravelTimes[stationName]
+          // Make sure it has the duration (otherwise add it to a list to be populated)
+          if (stationTravelTimes.hasOwnProperty(stationName) && stationTravelTimes[stationName].hasOwnProperty("duration")) {
 
             // Populate the node's info window
             mapInfoWindow(station.duration + " minutes from "  + stationName + " to " + destinationToCheck, map, markers[stationName]);
@@ -124,32 +142,33 @@
             }else{
               markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
             }
+          }else{
+              // add it to the unknownStationsArray if we don't know the travel duration to it
+              unknownStationsArray.push(stationName)
           }
         }
+        if(unknownStationsArray.length > 0){
+          // Go out and find the unknown stations
+          findStationsTravelTimes(unknownStationsArray, 0)
+        }
+
       }
 
       function updateDynamoDB(){
-        // Build the array of origins to match the DynamoDB structure
-        var origins = {}
-        stations.forEach(function(obj, index){
-          origins[obj.stationname] = {
-            duration: obj.duration
-          }
-        })
 
         $.post(apiURI+"dev/set-traveltimes", JSON.stringify({
             destination: destinationToCheck,
-            origins: origins
+            origins: stations
         }),function(response){
           console.log(response)
         }, "json" )
       }
 
-      function findStationsTravelTimes(index) {
+      function findStationsTravelTimes(unknownStationsArray,index) {
 
         // If we've done all the stations, exit
-        if(index >= stations.length){
-          $('.progress').slideUp();
+        if(index >= stationsArray.length){
+          $('#progress').slideUp();
           updateDynamoDB();
           return
         }
@@ -159,9 +178,12 @@
           updateDynamoDB();
         }
 
-        var origin = stations[index]
-        $('.progress').slideDown();
-        $('#progressBar').css('width', ((index/stations.length)*100) + "%");
+        var stationName = unknownStationsArray[index]
+        var origin = stations[stationName]
+
+        $('#progress').slideDown();
+        $('#progressBar').css('width', ((index/stationsArray.length)*100) + "%");
+        $('#progressText').text(index + ' of ' + stationsArray.length + ' stations')
         // Get the duration of the trip from that source
         directionsService.route({
           origin: {lat: origin.lat,lng: origin.lng},
@@ -177,26 +199,26 @@
               totalRouteTime += obj.duration.value
             })
             totalRouteTimeMins = parseInt(totalRouteTime/60)
-            stations[index].duration = totalRouteTimeMins
+            stations[stationName].duration = totalRouteTimeMins
 
             // Populate the node's info window
-            mapInfoWindow(totalRouteTimeMins + " minutes from "  + origin.stationname + " to " + destinationToCheck +
-            "<br/>" + origin.lat + "," + origin.lng, map, markers[origin.stationname])
+            mapInfoWindow(totalRouteTimeMins + " minutes from "  + stationName + " to " + destinationToCheck +
+            "<br/>" + origin.lat + "," + origin.lng, map, markers[stationName])
 
             // Colour the node in accordance to our threshold
             if(totalRouteTimeMins < durationThreshold){
-              markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
+              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
             }else{
-              markers[origin.stationname].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
+              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
             }
 
             // Find the next station's duration in 2 seconds
-            setTimeout(function(){findStationsTravelTimes(index+1)}, 2000)
+            setTimeout(function(){findStationsTravelTimes(unknownStationsArray,index+1)}, 2000)
           } else {
 
             // Try again in 2 seconds
             console.log('Directions request failed due to ' + status);
-            setTimeout(function(){findStationsTravelTimes(index)}, 2000)
+            setTimeout(function(){findStationsTravelTimes(unknownStationsArray,index)}, 2000)
           }
         });
       }
@@ -220,14 +242,15 @@
           center: {"lat":  51.528308,
           "lng":  -0.3817765}
         });
-        stations.forEach(function(item, index){
+        Object.keys(stations).forEach(function(stationName){
+          item = stations[stationName]
           var marker = new google.maps.Marker({
             position: {lat: item.lat, lng: item.lng},
             map: map,
-            title: item.stationname,
+            title: stationName,
             icon: 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
           });
-          markers[item.stationname] = marker
+          markers[stationName] = marker
         })
       }
     </script>

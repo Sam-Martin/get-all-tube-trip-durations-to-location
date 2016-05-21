@@ -38,7 +38,7 @@ module.exports.handler = function(event, context, cb) {
       // Merge/Strip out empty origins
       for(var originName in event.origins){
         console.log("evaluating " + originName)
-        if(Object.keys(event.origins[originName]).length){
+        if(event.origins[originName].hasOwnProperty("duration")){
           console.log("adding " + originName)
           origins[originName] = event.origins[originName]
         }
