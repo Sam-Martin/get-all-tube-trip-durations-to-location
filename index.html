@@ -131,6 +131,9 @@
         destinationToCheck = $('#destinationToCheck').val();
         durationThreshold = $('#durationThreshold').val();
 
+        // Change the destination pin colour to blue
+        markers[destinationToCheck].setIcon('http://maps.google.com/mapfiles/ms/icons/blue-dot.png')
+
         // Set the search URL
         url = window.location.protocol + "//" +  window.location.hostname + window.location.pathname +
           "?destinationToCheck=" + encodeURIComponent(destinationToCheck) +
@@ -186,6 +189,11 @@
         // Loop through each pre-populated station travel duration and bring it onto the map!
         for (var stationName in stations) {
           var station = stationTravelTimes[stationName]
+
+          // We don't want to do anything with our destination pin
+          if(stationName == destinationToCheck){
+            continue
+          }
 
           // Make sure it has the duration (otherwise add it to a list to be populated)
           if (stationTravelTimes.hasOwnProperty(stationName) && stationTravelTimes[stationName].hasOwnProperty("duration")) {
