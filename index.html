@@ -111,7 +111,9 @@
       var directionsService
       var stations
       var markers = {}
-      var map
+      var map;
+      var searchRunning = false;
+      var cancelSearch = false;
       var stationsArray = []
       $(document).ready(function(){
         $('#destinationToCheck').numeric()
@@ -147,7 +149,9 @@
             console.log(data.Error)
 
             // If we haven't got the destination already, clone the stations array and iterate through it
-            findStationsTravelTimes(stationsArray.slice(0),0)
+            clearSearch(function(){
+              findStationsTravelTimes(stationsArray.slice(0),0)
+            });
           }else{
             displayStationsTravelTimes(data.Item.origins)
           }
@@ -155,7 +159,18 @@
         })
       }
 
+      function clearSearch(callback){
+        if(searchRunning){
+          console.log("A search is currently running, cancelling it and trying again in 2 seconds")
+          cancelSearch = true
+          setTimeout(function(){clearSearch(callback)},3000)
+        }else{
+          cancelSearch = false
+          console.log("A search is not running, running callback")
+          callback();
+        }
 
+      }
 
 
       function getStationsJSON(callback){
@@ -214,7 +229,10 @@
         }
         if(unknownStationsArray.length > 0){
           // Go out and find the unknown stations
-          findStationsTravelTimes(unknownStationsArray, 0)
+          clearSearch(function(){
+            findStationsTravelTimes(unknownStationsArray, 0)
+          });
+
         }
 
       }
@@ -230,6 +248,13 @@
       }
 
       function findStationsTravelTimes(unknownStationsArray,index) {
+
+        if(cancelSearch){
+          searchRunning = false;
+          return
+        }
+        searchRunning = true;
+
 
         // If we've done all the stations, exit
         if(index >= unknownStationsArray.length){
@@ -315,8 +340,9 @@
 
       }
       function populateMarkers(callback){
+
         Object.keys(stations).forEach(function(stationName){
-          console.log("Setting marker for " + stationName)
+
           item = stations[stationName]
           var marker = new google.maps.Marker({
             position: {lat: item.lat, lng: item.lng},
@@ -329,15 +355,13 @@
         callback();
       }
       function loadMarkers(callback){
+
         // reset the markers if they exist
-        console.log("Loading markers")
         if(Object.keys(markers).length > 0){
           getStationsJSON(function(){
-            console.log("We already have markers, resetting")
+
             Object.keys(markers).forEach(function(stationName, index){
-              console.log("Resetting marker for "+ stationName)
               markers[stationName].setMap(null);
-              console.log(index + " " + (markers.length -1))
               if(index == Object.keys(markers).length -1){
                 markers={}
                 populateMarkers(callback);
@@ -348,8 +372,6 @@
           markers={}
           populateMarkers(callback);
         }
-
-        callback();
       }
 
       function initMap() {
