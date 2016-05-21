@@ -26,7 +26,7 @@
       #map {
         height: 100%;
       }
-      #progress{
+      #progress, #shareLinkFormGroup{
         display: none;
       }
       .progress{
@@ -38,8 +38,9 @@
       }
       #durationThreshold{
         width:50px;
+        display:inline;
       }
-      #destinationToCheck{
+      #destinationToCheck, #searchUrl{
         width:300px;
       }
       .easy-autocomplete{
@@ -52,14 +53,18 @@
       <div class="container-fluid">
         <!-- Brand and toggle get grouped for better mobile display -->
         <div class="navbar-header">
-          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1" aria-expanded="false">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
             <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
           </button>
           <a class="navbar-brand" href="#">Get London Commute Times</a>
         </div>
 
         <!-- Collect the nav links, forms, and other content for toggling -->
-        <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+        <div id="navbar" class="navbar-collapse collapse">
           <form class="navbar-form navbar-left" role="search">
             <div class="form-group">
               <label for="destinationToCheck">Destination</label>
@@ -69,10 +74,16 @@
               <label for="durationThreshold">Max Travel (mins)</label>
               <input type="test" class="form-control" value="60" id="durationThreshold">
             </div>
-            <button class="btn btn-default" onclick="javascript:searchDestinationCommuteTimes();return false;">Search</button>
+            <button class="btn btn-default" onclick="javascript:loadMarkers(searchDestinationCommuteTimes);return false;">Search</button>
+          </form>
+          <form class="navbar-form navbar-left" role="search">
+            <div class="form-group" id="shareLinkFormGroup">
+              <label for="searchUrl">Share Link</label>
+              <input type="test" class="form-control" id="searchUrl">
+            </div>
           </form>
           <ul class="nav navbar-nav navbar-right">
-            <li><a href="#">Link</a></li>
+            <li><a href="https://github.com/Sam-Martin/get-london-commute-times">GitHub</a></li>
           </ul>
         </div><!-- /.navbar-collapse -->
       </div><!-- /.container-fluid -->
@@ -90,6 +101,7 @@
 
 
     </div>
+
     <div id="map"></div>
     <script>
 
@@ -103,10 +115,28 @@
       var stationsArray = []
       $(document).ready(function(){
         $('#destinationToCheck').numeric()
+
+
       })
+
+      function getUrlVars() {
+        var vars = {};
+        var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+          vars[key] = value;
+        });
+        return vars;
+      }
+
       var searchDestinationCommuteTimes = function(){
         destinationToCheck = $('#destinationToCheck').val();
         durationThreshold = $('#durationThreshold').val();
+
+        // Set the search URL
+        url = window.location.protocol + "//" +  window.location.hostname + window.location.pathname +
+          "?destinationToCheck=" + encodeURIComponent(destinationToCheck) +
+          "&durationThreshold=" + durationThreshold
+        $('#searchUrl').val(url);
+        $('#shareLinkFormGroup').css('display', 'inline');
         // Get origin durations from DynamoDB if we get
         $.getJSON(apiURI + '/dev/get-traveltimes', {destination: destinationToCheck}, function(data){
 
@@ -124,26 +154,31 @@
 
 
 
-      // Fetch the list of stations
-      $.getJSON("/stations.json", function( response ) {
-          stations = response
-          initMap()
 
-          // generate an array of stations
-          Object.keys(stations).forEach(function(stationName) {
-             stationsArray.push(stationName)
-          });
+      function getStationsJSON(callback){
+        // Fetch the list of stations
+        $.getJSON("/stations.json", function( response ) {
+            stations = response
 
-          $('#destinationToCheck').easyAutocomplete({
-            data: stationsArray,
-            parametercssClasses: "form-control",
-            list: {
-          		match: {
-          			enabled: true
-          		}
-          	}
-         });
-      });
+            stationsArray = []
+            // generate an array of stations
+            Object.keys(stations).forEach(function(stationName) {
+               stationsArray.push(stationName)
+            });
+
+            $('#destinationToCheck').easyAutocomplete({
+              data: stationsArray,
+              list: {
+            		match: {
+            			enabled: true
+            		}
+            	}
+           });
+           callback();
+
+        });
+      }
+      getStationsJSON(initMap)
 
       function displayStationsTravelTimes(stationTravelTimes){
         var unknownStationsArray = [];
@@ -227,18 +262,14 @@
           if (status == google.maps.DirectionsStatus.OK) {
 
             // Find the shortest total route time from all the legs
-            console.log("looking for shortest route for: " + stationName)
-            console.log(response.routes)
             response.routes.forEach(function(item, index){
               var curRouteTime = 0
               item.legs.map(function(obj){
                 curRouteTime += obj.duration.value
               })
               if(shortestRouteTime == 0 || curRouteTime < shortestRouteTime){
-                console.log("   Found: " + curRouteTime + " which is shorter than " + shortestRouteTime)
                 shortestRouteTime = curRouteTime
               }else{
-                console.log("   Found: " + curRouteTime + " which is not shorter than " + shortestRouteTime)
               }
             })
             shortestRouteTimeMins = parseInt(shortestRouteTime/60)
@@ -275,16 +306,9 @@
         });
 
       }
-
-      function initMap() {
-        directionsService = new google.maps.DirectionsService;
-
-        map = new google.maps.Map(document.getElementById('map'), {
-          zoom: 10,
-          center: {"lat":  51.528308,
-          "lng":  -0.3817765}
-        });
+      function populateMarkers(callback){
         Object.keys(stations).forEach(function(stationName){
+          console.log("Setting marker for " + stationName)
           item = stations[stationName]
           var marker = new google.maps.Marker({
             position: {lat: item.lat, lng: item.lng},
@@ -294,6 +318,51 @@
           });
           markers[stationName] = marker
         })
+        callback();
+      }
+      function loadMarkers(callback){
+        // reset the markers if they exist
+        console.log("Loading markers")
+        if(Object.keys(markers).length > 0){
+          getStationsJSON(function(){
+            console.log("We already have markers, resetting")
+            Object.keys(markers).forEach(function(stationName, index){
+              console.log("Resetting marker for "+ stationName)
+              markers[stationName].setMap(null);
+              console.log(index + " " + (markers.length -1))
+              if(index == Object.keys(markers).length -1){
+                markers={}
+                populateMarkers(callback);
+              }
+            })
+          });
+        }else{
+          markers={}
+          populateMarkers(callback);
+        }
+
+        callback();
+      }
+
+      function initMap() {
+        directionsService = new google.maps.DirectionsService;
+
+        map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 10,
+          center: {"lat":  51.528308,
+          "lng":  -0.3817765}
+        });
+
+        // If there's a querystring variable, then populate fields as appropriate
+        urlVars = getUrlVars();
+        if(Object.keys(urlVars).length){
+          ["durationThreshold", "destinationToCheck"].forEach(function(val, index){
+            if(urlVars.hasOwnProperty(val)){
+              $('#'+val).val(decodeURIComponent(urlVars[val]));
+            }
+          })
+          loadMarkers(searchDestinationCommuteTimes);
+        }
       }
     </script>
     <script async defer
