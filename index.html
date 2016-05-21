@@ -5,8 +5,9 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
-    <script src="easy-autocomplete/jquery.easy-autocomplete.min.js"></script>
-    <link rel="stylesheet" href="easy-autocomplete/easy-autocomplete.min.css">
+    <script src="js/jquery.easy-autocomplete.min.js"></script>
+    <script src="js/jquery.numeric.min.js"></script>
+    <link rel="stylesheet" href="css/easy-autocomplete.min.css">
    <!--[if IE 7]>
    <link rel="stylesheet" href="assets/css/font-awesome-ie7.min.css">
    <![endif]-->
@@ -32,6 +33,18 @@
         margin-left:10px;
         margin-right:10px
       }
+      .form-group{
+        margin-left:10px;
+      }
+      #durationThreshold{
+        width:50px;
+      }
+      #destinationToCheck{
+        width:300px;
+      }
+      .easy-autocomplete{
+        display: inline-block;
+      }
     </style>
   </head>
   <body>
@@ -49,7 +62,12 @@
         <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
           <form class="navbar-form navbar-left" role="search">
             <div class="form-group">
+              <label for="destinationToCheck">Destination</label>
               <input type="text" class="form-control" placeholder="Destination" id="destinationToCheck">
+            </div>
+            <div class="form-group">
+              <label for="durationThreshold">Max Travel (mins)</label>
+              <input type="test" class="form-control" value="60" id="durationThreshold">
             </div>
             <button class="btn btn-default" onclick="javascript:searchDestinationCommuteTimes();return false;">Search</button>
           </form>
@@ -83,9 +101,12 @@
       var markers = {}
       var map
       var stationsArray = []
-
+      $(document).ready(function(){
+        $('#destinationToCheck').numeric()
+      })
       var searchDestinationCommuteTimes = function(){
         destinationToCheck = $('#destinationToCheck').val();
+        durationThreshold = $('#durationThreshold').val();
         // Get origin durations from DynamoDB if we get
         $.getJSON(apiURI + '/dev/get-traveltimes', {destination: destinationToCheck}, function(data){
 
@@ -115,6 +136,7 @@
 
           $('#destinationToCheck').easyAutocomplete({
             data: stationsArray,
+            parametercssClasses: "form-control",
             list: {
           		match: {
           			enabled: true
@@ -167,7 +189,7 @@
       function findStationsTravelTimes(unknownStationsArray,index) {
 
         // If we've done all the stations, exit
-        if(index >= stationsArray.length){
+        if(index >= unknownStationsArray.length){
           $('#progress').slideUp();
           updateDynamoDB();
           return
@@ -182,31 +204,51 @@
         var origin = stations[stationName]
 
         $('#progress').slideDown();
-        $('#progressBar').css('width', ((index/stationsArray.length)*100) + "%");
-        $('#progressText').text(index + ' of ' + stationsArray.length + ' stations')
+        $('#progressBar').css('width', ((index/unknownStationsArray.length)*100) + "%");
+        $('#progressText').text(index + ' of ' + unknownStationsArray.length + ' stations')
+
+        // Get the time of next monday at 9AM
+        var arrivalTime = new Date();
+        arrivalTime.setDate(arrivalTime.getDate() + (7-arrivalTime.getDay())%7+1)
+        arrivalTime.setHours(9,0,0,0);
+
         // Get the duration of the trip from that source
         directionsService.route({
           origin: {lat: origin.lat,lng: origin.lng},
           destination: destinationToCheck,
-          travelMode: google.maps.TravelMode["TRANSIT"]
+          provideRouteAlternatives: true,
+          travelMode: google.maps.TravelMode["TRANSIT"],
+          transitOptions: {
+            arrivalTime: arrivalTime
+          }
         }, function(response, status) {
 
+          var shortestRouteTime = 0;
           if (status == google.maps.DirectionsStatus.OK) {
 
-            // Caclulate the total route time from all the legs
-            var totalRouteTime = 0;
-            response.routes[0].legs.map(function(obj){
-              totalRouteTime += obj.duration.value
+            // Find the shortest total route time from all the legs
+            console.log("looking for shortest route for: " + stationName)
+            console.log(response.routes)
+            response.routes.forEach(function(item, index){
+              var curRouteTime = 0
+              item.legs.map(function(obj){
+                curRouteTime += obj.duration.value
+              })
+              if(shortestRouteTime == 0 || curRouteTime < shortestRouteTime){
+                console.log("   Found: " + curRouteTime + " which is shorter than " + shortestRouteTime)
+                shortestRouteTime = curRouteTime
+              }else{
+                console.log("   Found: " + curRouteTime + " which is not shorter than " + shortestRouteTime)
+              }
             })
-            totalRouteTimeMins = parseInt(totalRouteTime/60)
-            stations[stationName].duration = totalRouteTimeMins
+            shortestRouteTimeMins = parseInt(shortestRouteTime/60)
+            stations[stationName].duration = shortestRouteTimeMins
 
             // Populate the node's info window
-            mapInfoWindow(totalRouteTimeMins + " minutes from "  + stationName + " to " + destinationToCheck +
-            "<br/>" + origin.lat + "," + origin.lng, map, markers[stationName])
+            mapInfoWindow(shortestRouteTimeMins + " minutes from "  + stationName + " to " + destinationToCheck, map, markers[stationName])
 
             // Colour the node in accordance to our threshold
-            if(totalRouteTimeMins < durationThreshold){
+            if(shortestRouteTimeMins < durationThreshold){
               markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
             }else{
               markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
