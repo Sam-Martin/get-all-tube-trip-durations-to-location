@@ -82,7 +82,7 @@
             console.log(data.Error)
             findStationsTravelTimes(0)
           }else{
-              displayStationsTravelTimes(data.Item.origins)
+            displayStationsTravelTimes(data.Item.origins)
           }
 
         })
@@ -128,26 +128,35 @@
         }
       }
 
+      function updateDynamoDB(){
+        // Build the array of origins to match the DynamoDB structure
+        var origins = {}
+        stations.forEach(function(obj, index){
+          origins[obj.stationname] = {
+            duration: obj.duration
+          }
+        })
+
+        $.post(apiURI+"dev/set-traveltimes", JSON.stringify({
+            destination: destinationToCheck,
+            origins: origins
+        }),function(response){
+          console.log(response)
+        }, "json" )
+      }
+
       function findStationsTravelTimes(index) {
 
         // If we've done all the stations, exit
         if(index >= stations.length){
           $('.progress').slideUp();
-          // Build the array of origins to match the DynamoDB structure
-          var origins = {}
-          stations.forEach(function(obj, index){
-            origins[obj.stationname] = {
-              duration: obj.duration
-            }
-          })
-
-          $.post(apiURI+"dev/set-traveltimes", JSON.stringify({
-              destination: destinationToCheck,
-              origins: origins
-          }),function(response){
-            console.log(response)
-          }, "json" )
+          updateDynamoDB();
           return
+        }
+
+        // Update DynamoDB with our findings every 10 results we find
+        if(index > 0 && index % 10 == 0){
+          updateDynamoDB();
         }
 
         var origin = stations[index]
@@ -171,7 +180,8 @@
             stations[index].duration = totalRouteTimeMins
 
             // Populate the node's info window
-            mapInfoWindow(totalRouteTimeMins + " minutes from "  + origin.stationname + " to " + destinationToCheck, map, markers[origin.stationname])
+            mapInfoWindow(totalRouteTimeMins + " minutes from "  + origin.stationname + " to " + destinationToCheck +
+            "<br/>" + origin.lat + "," + origin.lng, map, markers[origin.stationname])
 
             // Colour the node in accordance to our threshold
             if(totalRouteTimeMins < durationThreshold){
