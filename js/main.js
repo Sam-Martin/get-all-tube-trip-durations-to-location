@@ -1,6 +1,6 @@
 
       var destinationToCheck = "London Eye, London"
-      var apiURI = "https://9x05a3dbbk.execute-api.eu-west-1.amazonaws.com/"
+      var apiURI = "https://9x05a3dbbk.execute-api.eu-west-1.amazonaws.com/prod/"
       var durationThreshold = 60
       var directionsService
       var stations
@@ -29,7 +29,8 @@
 
         stationsArray.forEach(function(stationName){
           var station = stations[stationName];
-          if(station.type == "train"){
+          console.log(station)
+          if(!station.zone){
             markers[stationName].setVisible(trainsVisible);
           }
         })
@@ -40,7 +41,7 @@
         durationThreshold = $('#durationThreshold').val();
 
         // Change the destination pin colour to blue
-        markers[destinationToCheck].setIcon('http://maps.google.com/mapfiles/ms/icons/blue-dot.png')
+        markers[destinationToCheck].setIcon('https://maps.google.com/mapfiles/ms/icons/blue-dot.png')
 
         // Set the search URL
         url = window.location.protocol + "//" +  window.location.hostname + window.location.pathname +
@@ -49,7 +50,7 @@
         $('#searchUrl').val(url);
         $('#shareLinkFormGroup').css('display', 'inline');
         // Get origin durations from DynamoDB if we get
-        $.getJSON(apiURI + '/dev/get-traveltimes', {destination: destinationToCheck}, function(data){
+        $.getJSON(apiURI + '/get-traveltimes', {destination: destinationToCheck}, function(data){
 
           if(typeof(data.Error) != "undefined"){
             console.log(data.Error)
@@ -81,7 +82,7 @@
 
       function getStationsJSON(callback){
         // Fetch the list of stations
-        $.getJSON("/stations.json", function( response ) {
+        $.getJSON("stations.json", function( response ) {
             stations = response
 
             stationsArray = []
@@ -119,14 +120,33 @@
           // Make sure it has the duration (otherwise add it to a list to be populated)
           if (stationTravelTimes.hasOwnProperty(stationName) && stationTravelTimes[stationName].hasOwnProperty("duration")) {
 
-            // Populate the node's info window
-            mapinfoWindow(station.duration + " minutes from "  + stationName + " to " + destinationToCheck, map, markers[stationName]);
+            // Create a tiny three-point polyline centring on the station to pass to RightMove
+            var triCoords = [
+              {lat: stations[stationName].lat, lng: stations[stationName].lng},
+              {lat: stations[stationName].lat + 0.0001, lng: stations[stationName].lng + 0.0001},
+              {lat: stations[stationName].lat - 0.0001, lng: stations[stationName].lng - 0.0001},
+            ]
+            var polyLine = new google.maps.Polyline({
+              path: triCoords
+            });
+            var encodedPolyLine = google.maps.geometry.encoding.encodePath(polyLine.getPath());
 
+            // Generate the rightMove URL
+            var righMoveParams = {
+              locationIdentifier: "USERDEFINEDAREA^{\"polylines\":\""+encodedPolyLine + "\"}",
+              radius: 0.5
+            }
+            var rightMoveURL = "http://www.rightmove.co.uk/property-to-rent/map.html?"+ jQuery.param(righMoveParams)
+
+            // Populate the node's info window
+            var text = station.duration + " minutes from "  + stationName + " to " + destinationToCheck + '<br/>' +
+                '<a href="' + rightMoveURL + '" target="_blank">RightMove for ' + stationName + ' + 0.5 miles</a>'
+            mapinfoWindow(text, map, markers[stationName]);
             // Colour the node in accordance to our threshold
             if(station.duration < durationThreshold){
-              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
+              markers[stationName].setIcon('https://maps.google.com/mapfiles/ms/icons/green-dot.png')
             }else{
-              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
+              markers[stationName].setIcon('https://maps.google.com/mapfiles/ms/icons/red-dot.png')
             }
           }else{
               // add it to the unknownStationsArray if we don't know the travel duration to it
@@ -143,14 +163,23 @@
 
       }
 
-      function updateDynamoDB(){
+      function updateDynamoDB(stationsToAdd){
 
-        $.post(apiURI+"dev/set-traveltimes", JSON.stringify({
+        $.post(apiURI+"/set-traveltimes", JSON.stringify({
             destination: destinationToCheck,
-            origins: stations
+            origins: stationsToAdd
         }),function(response){
           console.log(response)
         }, "json" )
+      }
+
+      function sliceStations(unknownStationsArray,from,to){
+        // Compile a list of the ten most recent stations
+        var mostRecentStations = {}
+        unknownStationsArray.slice(from,to).forEach(function(stationName, index){
+          mostRecentStations[stationName] = stations[stationName]
+        })
+        return mostRecentStations
       }
 
       function findStationsTravelTimes(unknownStationsArray,index) {
@@ -166,13 +195,15 @@
         // If we've done all the stations, exit
         if(index >= unknownStationsArray.length){
           $('#progress').slideUp();
-          updateDynamoDB();
+
+          updateDynamoDB(sliceStations(unknownStationsArray,index-10,index));
+          searchRunning = false
           return
         }
 
         // Update DynamoDB with our findings every 10 results we find
         if(index > 0 && index % 10 == 0){
-          updateDynamoDB();
+          updateDynamoDB(sliceStations(unknownStationsArray,index-10,index));
         }
 
         var stationName = unknownStationsArray[index]
@@ -221,9 +252,9 @@
 
             // Colour the node in accordance to our threshold
             if(shortestRouteTimeMins < durationThreshold){
-              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/green-dot.png')
+              markers[stationName].setIcon('https://maps.google.com/mapfiles/ms/icons/green-dot.png')
             }else{
-              markers[stationName].setIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png')
+              markers[stationName].setIcon('https://maps.google.com/mapfiles/ms/icons/red-dot.png')
             }
 
             // Find the next station's duration in 2 seconds
@@ -255,7 +286,7 @@
             position: {lat: item.lat, lng: item.lng},
             map: map,
             title: stationName,
-            icon: 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
+            icon: 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
           });
           markers[stationName] = marker
         })
