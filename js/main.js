@@ -125,6 +125,7 @@
               {lat: stations[stationName].lat, lng: stations[stationName].lng},
               {lat: stations[stationName].lat + 0.0001, lng: stations[stationName].lng + 0.0001},
               {lat: stations[stationName].lat - 0.0001, lng: stations[stationName].lng - 0.0001},
+              {lat: stations[stationName].lat, lng: stations[stationName].lng},
             ]
             var polyLine = new google.maps.Polyline({
               path: triCoords
